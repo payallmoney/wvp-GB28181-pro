@@ -145,6 +145,11 @@ public class DeviceServiceImpl implements IDeviceService {
             }
             sync(device);
         }else {
+            if (userSetting.getDeviceStatusNotify()) {
+                // 发送redis消息
+                redisCatchStorage.sendDeviceOrChannelStatus(device.getDeviceId(), null, true);
+            }
+
             if(!device.isOnLine()){
                 device.setOnLine(true);
                 device.setCreateTime(now);
@@ -167,10 +172,6 @@ public class DeviceServiceImpl implements IDeviceService {
                 }
                 if (device.getSubscribeCycleForMobilePosition() > 0) {
                     addMobilePositionSubscribe(device);
-                }
-                if (userSetting.getDeviceStatusNotify()) {
-                    // 发送redis消息
-                    redisCatchStorage.sendDeviceOrChannelStatus(device.getDeviceId(), null, true);
                 }
 
             }else {

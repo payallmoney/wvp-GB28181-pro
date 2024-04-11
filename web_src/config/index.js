@@ -11,12 +11,12 @@ module.exports = {
     assetsSubDirectory: 'static',
     assetsPublicPath: '/',
     proxyTable: {
-      '/debug': {
+      '/api': {
         target: 'http://127.0.0.1:8001',
         changeOrigin: true,
-        pathRewrite: {
-          '^/debug': '/'
-        }
+        // pathRewrite: {
+        //   '^/': '/'
+        // }
       },
       '/static/snap': {
         target: 'http://127.0.0.1:8001',

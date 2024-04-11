@@ -1,6 +1,8 @@
 set windows-shell:=["powershell.exe","-NoLogo","-Command"]
 zlm:
-    cd D:\klwork\wvp_pro_compose; just up zlm;
+    cd D:\klwork\wvp_pro_compose;just up zlm;
+wvp:
+    cd D:\klwork\wvp-GB28181-pro\web_src;start just dev
 dev:
     npm run dev
 merge:

@@ -211,10 +211,12 @@ public class MyMqttClient {
                     String fileName = deviceId + "_" + channelId + "_" + DateUtil.getNowForUrl() + ".jpg";
                     playService.getSnap(deviceId, channelId, fileName, (code, msg, data) -> {
                         Map<String, Object> sendPayload = new HashMap<>();
-                        sendPayload.put("id", id);
                         if (code == InviteErrorCode.SUCCESS.getCode()) {
                             sendPayload.put("code", 200);
-                            sendPayload.put("data", fileToBase64(((File) data).getAbsolutePath()));
+                            Map<String, Object> subdata = new HashMap<>();
+                            subdata.put("type", "base64");
+                            subdata.put("data", fileToBase64(((File) data).getAbsolutePath()));
+                            sendPayload.put("data", subdata);
                         } else {
                             sendPayload.put("code", 500);
                             sendPayload.put("data", "失败");

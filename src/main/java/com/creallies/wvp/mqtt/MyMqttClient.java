@@ -218,6 +218,8 @@ public class MyMqttClient {
                 throw new Exception("视频请求格式不正确,无法解析为json!");
             }
             id = param.getString("id");
+            Map<String, Object> contentData = new HashMap<>();
+            contentData.put("id", id);
             String action = param.getString("action");
             if (!StringUtils.hasLength(action)) {
                 log.error("未设置action,无法处理mqtt请求!");
@@ -241,15 +243,14 @@ public class MyMqttClient {
                     playService.getSnap(deviceId, channelId, fileName, (code, msg, data) -> {
                         Map<String, Object> sendPayload = new HashMap<>();
                         if (code == InviteErrorCode.SUCCESS.getCode()) {
+                            contentData.put("type", "base64");
+                            contentData.put("data", fileToBase64(((File) data).getAbsolutePath()));
                             sendPayload.put("code", 200);
-                            Map<String, Object> subdata = new HashMap<>();
-                            subdata.put("type", "base64");
-                            subdata.put("data", fileToBase64(((File) data).getAbsolutePath()));
-                            sendPayload.put("data", subdata);
+                            sendPayload.put("data", contentData);
                         } else {
                             sendPayload.put("code", 500);
-                            sendPayload.put("data", "失败");
-                            sendPayload.put("msg", msg);
+                            sendPayload.put("data", contentData);
+                            sendPayload.put("msg", "失败");
                         }
                         publish(replyTopic, JSON.toJSONString(sendPayload), replyMqttProperties);
                     });
@@ -264,7 +265,8 @@ public class MyMqttClient {
                     ptzController.ptz(deviceId, channelId, command, horizonSpeed, verticalSpeed, zoomSpeed);
                     sendPayload.put("id", id);
                     sendPayload.put("code", 200);
-                    sendPayload.put("data", "成功");
+                    sendPayload.put("msg", "成功");
+                    sendPayload.put("data", contentData);
                     publish(replyTopic, JSON.toJSONString(sendPayload), replyMqttProperties);
                     break;
                 }
@@ -277,27 +279,25 @@ public class MyMqttClient {
 
                     Map<String, Object> sendPayload = new HashMap<>();
                     ptzController.frontEndCommand(deviceId, channelId, cmdCode, parameter1, parameter2, combindCode2);
-                    sendPayload.put("id", id);
                     sendPayload.put("code", 200);
-                    sendPayload.put("data", "成功");
+                    sendPayload.put("msg", "成功");
+                    sendPayload.put("data", contentData);
                     publish(replyTopic, JSON.toJSONString(sendPayload), replyMqttProperties);
                     break;
                 }
                 case "gb_record/query": {
                     log.debug("执行命令: {}/{}", deviceId, channelId);
-                    String requestId = id;
                     String startTime = param.getString("startTime");
                     String endTime = param.getString("endTime");
-                    recordPlay1(replyTopic, requestId, deviceId, channelId, startTime, endTime, replyMqttProperties);
+                    recordPlay1(replyTopic, id, deviceId, channelId, startTime, endTime, replyMqttProperties);
 
                     break;
                 }
                 case "playback/start": {
                     log.debug("执行命令: {}/{}", deviceId, channelId);
-                    String requestId = id;
                     String startTime = param.getString("startTime");
                     String endTime = param.getString("endTime");
-                    playbackStart1(replyTopic, requestId, deviceId, channelId, startTime, endTime, replyMqttProperties);
+                    playbackStart1(replyTopic, id, deviceId, channelId, startTime, endTime, replyMqttProperties);
 
 
                     break;
@@ -305,10 +305,11 @@ public class MyMqttClient {
             }
         } catch (Exception ex) {
             log.error(ex.getMessage(), ex);
+            Map<String, Object> data = new HashMap<>();
+            data.put("id", id);
             Map<String, Object> sendPayload = new HashMap<>();
-            sendPayload.put("id", id);
             sendPayload.put("code", 500);
-            sendPayload.put("data", "失败");
+            sendPayload.put("data", data);
             sendPayload.put("msg", ex.getMessage());
             publish(replyTopic, JSON.toJSONString(sendPayload), replyMqttProperties);
 
@@ -320,16 +321,18 @@ public class MyMqttClient {
     public void playbackStart1(String replyTopic, String requestId, String deviceId, String channelId, String startTime, String endTime, MqttProperties replyMqttProperties) {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setLocalAddr("0.0.0.0");
-        DeferredResult<WVPResult<StreamContent>> rs = playbackController.start(request,deviceId, channelId, startTime, endTime);
+        DeferredResult<WVPResult<StreamContent>> rs = playbackController.start(request, deviceId, channelId, startTime, endTime);
         Map<String, Object> sendPayload = new HashMap<>();
-
+        Map<String, Object> contentData = new HashMap<>();
+        contentData.put("id", requestId);
         rs.setResultHandler(new DeferredResult.DeferredResultHandler() {
             @Override
             public void handleResult(Object result) {
                 log.debug("执行命令:  playback/Start success");
-                sendPayload.put("id", requestId);
+                contentData.put("data",result);
                 sendPayload.put("code", 200);
-                sendPayload.put("data", result);
+                sendPayload.put("msg", "成功");
+                sendPayload.put("data", contentData);
                 publish(replyTopic, JSON.toJSONString(sendPayload), replyMqttProperties);
             }
         });
@@ -337,9 +340,10 @@ public class MyMqttClient {
         rs.onError(new Consumer<Throwable>() {
             @Override
             public void accept(Throwable throwable) {
-                sendPayload.put("id", requestId);
+
                 sendPayload.put("code", 500);
-                sendPayload.put("data", throwable.getMessage());
+                sendPayload.put("msg", throwable.getMessage());
+                sendPayload.put("data", contentData);
                 publish(replyTopic, JSON.toJSONString(sendPayload), replyMqttProperties);
             }
         });
@@ -347,9 +351,9 @@ public class MyMqttClient {
         rs.onTimeout(new Runnable() {
             @Override
             public void run() {
-                sendPayload.put("id", requestId);
                 sendPayload.put("code", 500);
-                sendPayload.put("data", "请求超时");
+                sendPayload.put("msg", "请求超时");
+                sendPayload.put("data", contentData);
                 publish(replyTopic, JSON.toJSONString(sendPayload), replyMqttProperties);
             }
         });
@@ -410,14 +414,15 @@ public class MyMqttClient {
     public void recordPlay1(String replyTopic, String requestId, String deviceId, String channelId, String startTime, String endTime, MqttProperties replyMqttProperties) {
         DeferredResult<WVPResult<RecordInfo>> rs = gbRecordController.recordinfo(deviceId, channelId, startTime, endTime);
         Map<String, Object> sendPayload = new HashMap<>();
-
+        Map<String, Object> contentData = new HashMap<>();
+        contentData.put("id", requestId);
         rs.setResultHandler(new DeferredResult.DeferredResultHandler() {
             @Override
             public void handleResult(Object result) {
                 log.debug("执行命令:  playback/Start success");
-                sendPayload.put("id", requestId);
+                contentData.put("data", result);
                 sendPayload.put("code", 200);
-                sendPayload.put("data", result);
+                sendPayload.put("data", contentData);
                 publish(replyTopic, JSON.toJSONString(sendPayload), replyMqttProperties);
             }
         });
@@ -425,9 +430,9 @@ public class MyMqttClient {
         rs.onError(new Consumer<Throwable>() {
             @Override
             public void accept(Throwable throwable) {
-                sendPayload.put("id", requestId);
                 sendPayload.put("code", 500);
-                sendPayload.put("data", throwable.getMessage());
+                sendPayload.put("msg", throwable.getMessage());
+                sendPayload.put("data", contentData);
                 publish(replyTopic, JSON.toJSONString(sendPayload), replyMqttProperties);
             }
         });
@@ -435,9 +440,9 @@ public class MyMqttClient {
         rs.onTimeout(new Runnable() {
             @Override
             public void run() {
-                sendPayload.put("id", requestId);
                 sendPayload.put("code", 500);
-                sendPayload.put("data", "请求超时");
+                sendPayload.put("msg", "请求超时");
+                sendPayload.put("data", contentData);
                 publish(replyTopic, JSON.toJSONString(sendPayload), replyMqttProperties);
             }
         });

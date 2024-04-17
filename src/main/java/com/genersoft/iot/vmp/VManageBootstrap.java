@@ -9,10 +9,9 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.web.servlet.ServletComponentScan;
 import org.springframework.boot.web.servlet.support.SpringBootServletInitializer;
+import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.context.ConfigurableApplicationContext;
-import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
-import org.springframework.transaction.annotation.EnableTransactionManagement;
 
 import javax.servlet.ServletContext;
 import javax.servlet.ServletException;
@@ -24,45 +23,43 @@ import java.util.Collections;
  * 启动类
  */
 @ServletComponentScan("com.genersoft.iot.vmp.conf")
-@SpringBootApplication(scanBasePackages = {"com.genersoft", "com.creallies"})
+@SpringBootApplication
 @EnableScheduling
-@EnableAsync(proxyTargetClass = true)
+@EnableCaching
 public class VManageBootstrap extends SpringBootServletInitializer {
 
-    private final static Logger logger = LoggerFactory.getLogger(VManageBootstrap.class);
+	private final static Logger logger = LoggerFactory.getLogger(VManageBootstrap.class);
 
-    private static String[] args;
-    private static ConfigurableApplicationContext context;
+	private static String[] args;
+	private static ConfigurableApplicationContext context;
+	public static void main(String[] args) {
+		VManageBootstrap.args = args;
+		VManageBootstrap.context = SpringApplication.run(VManageBootstrap.class, args);
+		GitUtil gitUtil1 = SpringBeanFactory.getBean("gitUtil");
+		logger.info("构建版本： {}", gitUtil1.getBuildVersion());
+		logger.info("构建时间： {}", gitUtil1.getBuildDate());
+		logger.info("GIT最后提交时间： {}", gitUtil1.getCommitTime());
+	}
+	// 项目重启
+	public static void restart() {
+		context.close();
+		VManageBootstrap.context = SpringApplication.run(VManageBootstrap.class, args);
+	}
 
-    public static void main(String[] args) {
-        VManageBootstrap.args = args;
-        VManageBootstrap.context = SpringApplication.run(VManageBootstrap.class, args);
-        GitUtil gitUtil1 = SpringBeanFactory.getBean("gitUtil");
-        logger.info("构建版本： {}", gitUtil1.getBuildVersion());
-        logger.info("构建时间： {}", gitUtil1.getBuildDate());
-        logger.info("GIT最后提交时间： {}", gitUtil1.getCommitTime());
-    }
+	@Override
+	protected SpringApplicationBuilder configure(SpringApplicationBuilder application) {
+		return application.sources(VManageBootstrap.class);
+	}
 
-    // 项目重启
-    public static void restart() {
-        context.close();
-        VManageBootstrap.context = SpringApplication.run(VManageBootstrap.class, args);
-    }
+	@Override
+	public void onStartup(ServletContext servletContext) throws ServletException {
+		super.onStartup(servletContext);
 
-    @Override
-    protected SpringApplicationBuilder configure(SpringApplicationBuilder application) {
-        return application.sources(VManageBootstrap.class);
-    }
+		servletContext.setSessionTrackingModes(
+				Collections.singleton(SessionTrackingMode.COOKIE)
+		);
+		SessionCookieConfig sessionCookieConfig = servletContext.getSessionCookieConfig();
+		sessionCookieConfig.setHttpOnly(true);
 
-    @Override
-    public void onStartup(ServletContext servletContext) throws ServletException {
-        super.onStartup(servletContext);
-
-        servletContext.setSessionTrackingModes(
-                Collections.singleton(SessionTrackingMode.COOKIE)
-        );
-        SessionCookieConfig sessionCookieConfig = servletContext.getSessionCookieConfig();
-        sessionCookieConfig.setHttpOnly(true);
-
-    }
+	}
 }

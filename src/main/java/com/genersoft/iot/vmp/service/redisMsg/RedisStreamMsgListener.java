@@ -3,8 +3,8 @@ package com.genersoft.iot.vmp.service.redisMsg;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.genersoft.iot.vmp.conf.UserSetting;
-
 import com.genersoft.iot.vmp.media.zlm.ZLMMediaListManager;
+import com.genersoft.iot.vmp.media.zlm.dto.ChannelOnlineEvent;
 import com.genersoft.iot.vmp.media.zlm.dto.hook.OnStreamChangedHookParam;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,6 +15,7 @@ import org.springframework.data.redis.connection.MessageListener;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 
+import java.text.ParseException;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 
@@ -72,14 +73,18 @@ public class RedisStreamMsgListener implements MessageListener {
                         onStreamChangedHookParam.setMediaServerId(mediaServerId);
                         onStreamChangedHookParam.setCreateStamp(System.currentTimeMillis()/1000);
                         onStreamChangedHookParam.setAliveSecond(0L);
-                        onStreamChangedHookParam.setTotalReaderCount("0");
+                        onStreamChangedHookParam.setTotalReaderCount(0);
                         onStreamChangedHookParam.setOriginType(0);
                         onStreamChangedHookParam.setOriginTypeStr("0");
                         onStreamChangedHookParam.setOriginTypeStr("unknown");
-                        if (register) {
-                            zlmMediaListManager.addPush(onStreamChangedHookParam);
-                        }else {
-                            zlmMediaListManager.removeMedia(app, stream);
+                        ChannelOnlineEvent channelOnlineEventLister = zlmMediaListManager.getChannelOnlineEventLister(app, stream);
+                        if ( channelOnlineEventLister != null)  {
+                            try {
+                                channelOnlineEventLister.run(app, stream, serverId);;
+                            } catch (ParseException e) {
+                                logger.error("addPush: ", e);
+                            }
+                            zlmMediaListManager.removedChannelOnlineEventLister(app, stream);
                         }
                     }catch (Exception e) {
                         logger.warn("[REDIS消息-流变化] 发现未处理的异常, \r\n{}", JSON.toJSONString(message));

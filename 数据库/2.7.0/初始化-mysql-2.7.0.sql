@@ -31,7 +31,6 @@ create table wvp_device (
                             password character varying(255),
                             as_message_channel bool default false,
                             keepalive_interval_time integer,
-                            switch_primary_sub_stream bool default false,
                             broadcast_push_after_ack bool default false,
                             constraint uk_device_device unique (device_id)
 );
@@ -198,6 +197,7 @@ create table wvp_platform (
                               update_time character varying(50),
                               as_message_channel bool default false,
                               auto_push_channel bool default false,
+                              send_stream_ip character varying(50),
                               constraint uk_platform_unique_server_gb_id unique (server_gb_id)
 );
 
@@ -313,6 +313,17 @@ create table wvp_resources_tree (
                                     name character varying(255),
                                     parentId integer,
                                     path character varying(255)
+);
+create table wvp_user_api_key (
+                                    id serial primary key ,
+                                    user_id bigint,
+                                    app character varying(255) ,
+                                    api_key text,
+                                    expired_at bigint,
+                                    remark character varying(255),
+                                    enable bool default true,
+                                    create_time character varying(50),
+                                    update_time character varying(50)
 );
 
 

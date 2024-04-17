@@ -5,7 +5,7 @@ import com.alibaba.fastjson2.JSONObject;
 import com.genersoft.iot.vmp.gb28181.bean.GbStream;
 import com.genersoft.iot.vmp.media.zlm.dto.StreamPushItem;
 import com.genersoft.iot.vmp.service.IGbStreamService;
-import com.genersoft.iot.vmp.service.IMediaServerService;
+import com.genersoft.iot.vmp.media.service.IMediaServerService;
 import com.genersoft.iot.vmp.service.IStreamPushService;
 import com.genersoft.iot.vmp.utils.DateUtil;
 import org.slf4j.Logger;
@@ -84,7 +84,7 @@ public class RedisPushStreamStatusListMsgListener implements MessageListener {
                                 streamPushItem.setMediaServerId(mediaServerService.getDefaultMediaServer().getId());
                                 streamPushItem.setOriginType(2);
                                 streamPushItem.setOriginTypeStr("rtsp_push");
-                                streamPushItem.setTotalReaderCount("0");
+                                streamPushItem.setTotalReaderCount(0);
                                 streamPushItemForSave.add(streamPushItem);
                                 allGBId.put(streamPushItem.getGbId(), streamPushItem);
                             } else {

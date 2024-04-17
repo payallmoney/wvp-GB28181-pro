@@ -9,9 +9,11 @@ import com.genersoft.iot.vmp.gb28181.bean.AlarmChannelMessage;
 import com.genersoft.iot.vmp.gb28181.bean.Device;
 import com.genersoft.iot.vmp.gb28181.bean.ParentPlatformCatch;
 import com.genersoft.iot.vmp.gb28181.bean.SendRtpItem;
-import com.genersoft.iot.vmp.media.zlm.dto.MediaServerItem;
+import com.genersoft.iot.vmp.media.bean.MediaInfo;
+import com.genersoft.iot.vmp.media.bean.MediaServer;
+import com.genersoft.iot.vmp.media.event.media.MediaArrivalEvent;
 import com.genersoft.iot.vmp.media.zlm.dto.StreamAuthorityInfo;
-import com.genersoft.iot.vmp.media.zlm.dto.hook.OnStreamChangedHookParam;
+import com.genersoft.iot.vmp.media.zlm.dto.StreamPushItem;
 import com.genersoft.iot.vmp.service.bean.GPSMsgInfo;
 import com.genersoft.iot.vmp.service.bean.MessageForPushChannel;
 import com.genersoft.iot.vmp.storager.IRedisCatchStorage;
@@ -313,14 +315,14 @@ public class RedisCatchStorageImpl implements IRedisCatchStorage {
     }
 
     @Override
-    public void addStream(MediaServerItem mediaServerItem, String type, String app, String streamId, OnStreamChangedHookParam onStreamChangedHookParam) {
+    public void addStream(MediaServer mediaServerItem, String type, String app, String streamId, MediaInfo mediaInfo) {
         // 查找是否使用了callID
         StreamAuthorityInfo streamAuthorityInfo = getStreamAuthorityInfo(app, streamId);
         String key = VideoManagerConstants.WVP_SERVER_STREAM_PREFIX  + userSetting.getServerId() + "_" + type + "_" + app + "_" + streamId + "_" + mediaServerItem.getId();
         if (streamAuthorityInfo != null) {
-            onStreamChangedHookParam.setCallId(streamAuthorityInfo.getCallId());
+            mediaInfo.setCallId(streamAuthorityInfo.getCallId());
         }
-        redisTemplate.opsForValue().set(key, onStreamChangedHookParam);
+        redisTemplate.opsForValue().set(key, mediaInfo);
     }
 
     @Override
@@ -339,13 +341,13 @@ public class RedisCatchStorageImpl implements IRedisCatchStorage {
     }
 
     @Override
-    public List<OnStreamChangedHookParam> getStreams(String mediaServerId, String type) {
-        List<OnStreamChangedHookParam> result = new ArrayList<>();
+    public List<MediaInfo> getStreams(String mediaServerId, String type) {
+        List<MediaInfo> result = new ArrayList<>();
         String key = VideoManagerConstants.WVP_SERVER_STREAM_PREFIX + userSetting.getServerId() + "_" + type + "_*_*_" + mediaServerId;
         List<Object> streams = RedisUtil.scan(redisTemplate, key);
         for (Object stream : streams) {
-            OnStreamChangedHookParam onStreamChangedHookParam = (OnStreamChangedHookParam)redisTemplate.opsForValue().get(stream);
-            result.add(onStreamChangedHookParam);
+            MediaInfo mediaInfo = (MediaInfo)redisTemplate.opsForValue().get(stream);
+            result.add(mediaInfo);
         }
         return result;
     }
@@ -464,14 +466,14 @@ public class RedisCatchStorageImpl implements IRedisCatchStorage {
 
 
     @Override
-    public OnStreamChangedHookParam getStreamInfo(String app, String streamId, String mediaServerId) {
+    public MediaInfo getStreamInfo(String app, String streamId, String mediaServerId) {
         String scanKey = VideoManagerConstants.WVP_SERVER_STREAM_PREFIX  + userSetting.getServerId() + "_*_" + app + "_" + streamId + "_" + mediaServerId;
 
-        OnStreamChangedHookParam result = null;
+        MediaInfo result = null;
         List<Object> keys = RedisUtil.scan(redisTemplate, scanKey);
         if (keys.size() > 0) {
             String key = (String) keys.get(0);
-            result = JsonUtil.redisJsonToObject(redisTemplate, key, OnStreamChangedHookParam.class);
+            result = JsonUtil.redisJsonToObject(redisTemplate, key, MediaInfo.class);
         }
 
         return result;
@@ -651,18 +653,32 @@ public class RedisCatchStorageImpl implements IRedisCatchStorage {
     }
 
     @Override
-    public void addPushListItem(String app, String stream, OnStreamChangedHookParam param) {
+    public void addPushListItem(String app, String stream, MediaArrivalEvent event) {
         String key = VideoManagerConstants.PUSH_STREAM_LIST + app + "_" + stream;
-        redisTemplate.opsForValue().set(key, param);
+        StreamPushItem streamPushItem = StreamPushItem.getInstance(event, userSetting.getServerId());
+        redisTemplate.opsForValue().set(key, streamPushItem);
+    }
+
+    @Override
+    public StreamPushItem getPushListItem(String app, String stream) {
+        String key = VideoManagerConstants.PUSH_STREAM_LIST + app + "_" + stream;
+        return (StreamPushItem)redisTemplate.opsForValue().get(key);
     }
 
     @Override
     public void removePushListItem(String app, String stream, String mediaServerId) {
         String key = VideoManagerConstants.PUSH_STREAM_LIST + app + "_" + stream;
-        OnStreamChangedHookParam param = (OnStreamChangedHookParam)redisTemplate.opsForValue().get(key);
+        StreamPushItem param = (StreamPushItem)redisTemplate.opsForValue().get(key);
         if (param != null && param.getMediaServerId().equalsIgnoreCase(mediaServerId)) {
             redisTemplate.delete(key);
         }
 
+    }
+
+    @Override
+    public void sendPushStreamClose(MessageForPushChannel msg) {
+        String key = VideoManagerConstants.VM_MSG_STREAM_PUSH_CLOSE_REQUESTED;
+        logger.info("[redis发送通知] 发送 停止向上级推流 {}: {}/{}->{}", key, msg.getApp(), msg.getStream(), msg.getPlatFormId());
+        redisTemplate.convertAndSend(key, JSON.toJSON(msg));
     }
 }

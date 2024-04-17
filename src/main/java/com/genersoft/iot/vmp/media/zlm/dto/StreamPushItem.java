@@ -1,6 +1,8 @@
 package com.genersoft.iot.vmp.media.zlm.dto;
 
+import com.genersoft.iot.vmp.common.StreamInfo;
 import com.genersoft.iot.vmp.gb28181.bean.GbStream;
+import com.genersoft.iot.vmp.media.event.media.MediaArrivalEvent;
 import com.genersoft.iot.vmp.media.zlm.dto.hook.OnStreamChangedHookParam;
 import com.genersoft.iot.vmp.utils.DateUtil;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -33,7 +35,7 @@ public class StreamPushItem extends GbStream implements Comparable<StreamPushIte
      * 观看总人数，包括hls/rtsp/rtmp/http-flv/ws-flv
      */
     @Schema(description = "观看总人数")
-    private String totalReaderCount;
+    private Integer totalReaderCount;
 
     /**
      * 协议 包括hls/rtsp/rtmp/http-flv/ws-flv
@@ -150,6 +152,47 @@ public class StreamPushItem extends GbStream implements Comparable<StreamPushIte
                 - DateUtil.yyyy_MM_dd_HH_mm_ssToTimestamp(streamPushItem.getCreateTime())).intValue();
     }
 
+    public StreamPushItem getInstance(StreamInfo streamInfo) {
+        StreamPushItem streamPushItem = new StreamPushItem();
+        streamPushItem.setApp(streamInfo.getApp());
+        streamPushItem.setMediaServerId(streamInfo.getMediaServerId());
+        streamPushItem.setStream(streamInfo.getStream());
+        streamPushItem.setAliveSecond(streamInfo.getMediaInfo().getAliveSecond());
+//        streamPushItem.setOriginSock(streamInfo.getMediaInfo().getOriginSock());
+        streamPushItem.setTotalReaderCount(streamInfo.getMediaInfo().getReaderCount());
+        streamPushItem.setOriginType(streamInfo.getOriginType());
+//        streamPushItem.setOriginTypeStr(streamInfo.getMediaInfo().getOriginTypeStr());
+//        streamPushItem.setOriginUrl(streamInfo.getMediaInfo().getOriginUrl());
+        streamPushItem.setCreateTime(DateUtil.getNow());
+        streamPushItem.setAliveSecond(streamInfo.getMediaInfo().getAliveSecond());
+        streamPushItem.setStatus(true);
+        streamPushItem.setStreamType("push");
+//        streamPushItem.setVhost(streamInfo.getVhost());
+        streamPushItem.setServerId(streamInfo.getMediaServerId());
+        return streamPushItem;
+
+    }
+
+    public static StreamPushItem getInstance(MediaArrivalEvent event, String serverId){
+        StreamPushItem streamPushItem = new StreamPushItem();
+        streamPushItem.setApp(event.getApp());
+        streamPushItem.setMediaServerId(event.getMediaServer().getId());
+        streamPushItem.setStream(event.getStream());
+        streamPushItem.setAliveSecond(event.getMediaInfo().getAliveSecond());
+//        streamPushItem.setOriginSock(streamInfo.getMediaInfo().getOriginSock());
+        streamPushItem.setTotalReaderCount(event.getMediaInfo().getReaderCount());
+        streamPushItem.setOriginType(event.getMediaInfo().getOriginType());
+//        streamPushItem.setOriginTypeStr(streamInfo.getMediaInfo().getOriginTypeStr());
+//        streamPushItem.setOriginUrl(streamInfo.getMediaInfo().getOriginUrl());
+        streamPushItem.setCreateTime(DateUtil.getNow());
+        streamPushItem.setAliveSecond(event.getMediaInfo().getAliveSecond());
+        streamPushItem.setStatus(true);
+        streamPushItem.setStreamType("push");
+//        streamPushItem.setVhost(streamInfo.getVhost());
+        streamPushItem.setServerId(serverId);
+        return streamPushItem;
+    }
+
     public static class MediaSchema {
         private String schema;
         private Long bytesSpeed;
@@ -199,11 +242,11 @@ public class StreamPushItem extends GbStream implements Comparable<StreamPushIte
         this.stream = stream;
     }
 
-    public String getTotalReaderCount() {
+    public Integer getTotalReaderCount() {
         return totalReaderCount;
     }
 
-    public void setTotalReaderCount(String totalReaderCount) {
+    public void setTotalReaderCount(Integer totalReaderCount) {
         this.totalReaderCount = totalReaderCount;
     }
 

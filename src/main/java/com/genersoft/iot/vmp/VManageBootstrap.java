@@ -10,7 +10,9 @@ import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.web.servlet.ServletComponentScan;
 import org.springframework.boot.web.servlet.support.SpringBootServletInitializer;
 import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.transaction.annotation.EnableTransactionManagement;
 
 import javax.servlet.ServletContext;
 import javax.servlet.ServletException;
@@ -24,6 +26,7 @@ import java.util.Collections;
 @ServletComponentScan("com.genersoft.iot.vmp.conf")
 @SpringBootApplication(scanBasePackages = {"com.genersoft", "com.creallies"})
 @EnableScheduling
+@EnableAsync(proxyTargetClass = true)
 public class VManageBootstrap extends SpringBootServletInitializer {
 
     private final static Logger logger = LoggerFactory.getLogger(VManageBootstrap.class);

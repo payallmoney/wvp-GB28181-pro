@@ -2,19 +2,26 @@ package com.creallies.wvp.mqtt;
 
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
+import com.genersoft.iot.vmp.common.StreamInfo;
+import com.genersoft.iot.vmp.conf.UserSetting;
+import com.genersoft.iot.vmp.conf.exception.ControllerException;
 import com.genersoft.iot.vmp.gb28181.bean.Device;
-import com.genersoft.iot.vmp.gb28181.bean.DeviceChannel;
+import com.genersoft.iot.vmp.gb28181.bean.RecordInfo;
 import com.genersoft.iot.vmp.gb28181.transmit.callback.DeferredResultHolder;
 import com.genersoft.iot.vmp.gb28181.transmit.callback.RequestMessage;
+import com.genersoft.iot.vmp.gb28181.transmit.cmd.impl.SIPCommander;
 import com.genersoft.iot.vmp.service.IPlayService;
 import com.genersoft.iot.vmp.service.bean.InviteErrorCode;
+import com.genersoft.iot.vmp.storager.IVideoManagerStorage;
 import com.genersoft.iot.vmp.storager.dao.DeviceChannelMapper;
 import com.genersoft.iot.vmp.storager.dao.DeviceMapper;
 import com.genersoft.iot.vmp.utils.DateUtil;
+import com.genersoft.iot.vmp.vmanager.bean.ErrorCode;
+import com.genersoft.iot.vmp.vmanager.bean.StreamContent;
 import com.genersoft.iot.vmp.vmanager.bean.WVPResult;
-import com.genersoft.iot.vmp.vmanager.gb28181.device.DeviceQuery;
-import com.genersoft.iot.vmp.vmanager.gb28181.play.PlayController;
 import com.genersoft.iot.vmp.vmanager.gb28181.ptz.PtzController;
+import com.genersoft.iot.vmp.vmanager.gb28181.record.GBRecordController;
+import com.genersoft.iot.vmp.vmanager.gb28181.playback.PlaybackController;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.paho.mqttv5.client.*;
 import org.eclipse.paho.mqttv5.client.persist.MemoryPersistence;
@@ -24,24 +31,30 @@ import org.eclipse.paho.mqttv5.common.MqttPersistenceException;
 import org.eclipse.paho.mqttv5.common.packet.MqttProperties;
 import org.eclipse.paho.mqttv5.common.packet.UserProperty;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.CommandLineRunner;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
-import org.springframework.core.annotation.Order;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
-import org.springframework.util.ObjectUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.web.context.request.async.DeferredResult;
 
 import javax.annotation.PostConstruct;
+import javax.servlet.http.HttpServletRequest;
+import javax.sip.InvalidArgumentException;
+import javax.sip.SipException;
 import java.io.File;
 import java.io.IOException;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.text.ParseException;
 import java.util.*;
+import java.util.function.Consumer;
 
 import static com.creallies.wvp.constants.VideoConstants.DEVICE_CONTROL;
 import static com.creallies.wvp.constants.VideoConstants.DEVICE_CONTROL_REPLY;
+
 
 /**
  * mqtt 客户端
@@ -65,7 +78,22 @@ public class MyMqttClient {
     @Autowired
     private PtzController ptzController;
 
+    @Autowired
+    private GBRecordController gbRecordController;
+
+    @Autowired
+    private PlaybackController playbackController;
+
     private static Vector<Map<String, Object>> failMessageList = new Vector<>();
+
+    @Autowired
+    private SIPCommander cmder;
+
+    @Autowired
+    private IVideoManagerStorage storager;
+
+    @Autowired
+    private UserSetting userSetting;
 
     @PostConstruct
     public void init() {
@@ -177,6 +205,7 @@ public class MyMqttClient {
             replyMqttProperties_temp.setUserProperties(replyUserProperties);
         }
         final MqttProperties replyMqttProperties = replyMqttProperties_temp;
+        String id = null;
         try {
             String payloadData = new String(message.getPayload());
             log.info("mqtt topic == {} ,messageArrived == {}", topic, payloadData);
@@ -188,7 +217,7 @@ public class MyMqttClient {
                 log.error("视频请求格式不正确,无法解析为json!");
                 throw new Exception("视频请求格式不正确,无法解析为json!");
             }
-            String id = param.getString("id");
+            id = param.getString("id");
             String action = param.getString("action");
             if (!StringUtils.hasLength(action)) {
                 log.error("未设置action,无法处理mqtt请求!");
@@ -233,6 +262,7 @@ public class MyMqttClient {
                     Integer zoomSpeed = param.getInteger("zoomSpeed");
                     Map<String, Object> sendPayload = new HashMap<>();
                     ptzController.ptz(deviceId, channelId, command, horizonSpeed, verticalSpeed, zoomSpeed);
+                    sendPayload.put("id", id);
                     sendPayload.put("code", 200);
                     sendPayload.put("data", "成功");
                     publish(replyTopic, JSON.toJSONString(sendPayload), replyMqttProperties);
@@ -247,20 +277,201 @@ public class MyMqttClient {
 
                     Map<String, Object> sendPayload = new HashMap<>();
                     ptzController.frontEndCommand(deviceId, channelId, cmdCode, parameter1, parameter2, combindCode2);
+                    sendPayload.put("id", id);
                     sendPayload.put("code", 200);
                     sendPayload.put("data", "成功");
                     publish(replyTopic, JSON.toJSONString(sendPayload), replyMqttProperties);
+                    break;
+                }
+                case "gb_record/query": {
+                    log.debug("执行命令: {}/{}", deviceId, channelId);
+                    String requestId = id;
+                    String startTime = param.getString("startTime");
+                    String endTime = param.getString("endTime");
+                    recordPlay1(replyTopic, requestId, deviceId, channelId, startTime, endTime, replyMqttProperties);
+
+                    break;
+                }
+                case "playback/start": {
+                    log.debug("执行命令: {}/{}", deviceId, channelId);
+                    String requestId = id;
+                    String startTime = param.getString("startTime");
+                    String endTime = param.getString("endTime");
+                    playbackStart1(replyTopic, requestId, deviceId, channelId, startTime, endTime, replyMqttProperties);
+
+
                     break;
                 }
             }
         } catch (Exception ex) {
             log.error(ex.getMessage(), ex);
             Map<String, Object> sendPayload = new HashMap<>();
+            sendPayload.put("id", id);
             sendPayload.put("code", 500);
             sendPayload.put("data", "失败");
             sendPayload.put("msg", ex.getMessage());
             publish(replyTopic, JSON.toJSONString(sendPayload), replyMqttProperties);
 
+        }
+    }
+
+
+    @Async
+    public void playbackStart1(String replyTopic, String requestId, String deviceId, String channelId, String startTime, String endTime, MqttProperties replyMqttProperties) {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setLocalAddr("0.0.0.0");
+        DeferredResult<WVPResult<StreamContent>> rs = playbackController.start(request,deviceId, channelId, startTime, endTime);
+        Map<String, Object> sendPayload = new HashMap<>();
+
+        rs.setResultHandler(new DeferredResult.DeferredResultHandler() {
+            @Override
+            public void handleResult(Object result) {
+                log.debug("执行命令:  playback/Start success");
+                sendPayload.put("id", requestId);
+                sendPayload.put("code", 200);
+                sendPayload.put("data", result);
+                publish(replyTopic, JSON.toJSONString(sendPayload), replyMqttProperties);
+            }
+        });
+
+        rs.onError(new Consumer<Throwable>() {
+            @Override
+            public void accept(Throwable throwable) {
+                sendPayload.put("id", requestId);
+                sendPayload.put("code", 500);
+                sendPayload.put("data", throwable.getMessage());
+                publish(replyTopic, JSON.toJSONString(sendPayload), replyMqttProperties);
+            }
+        });
+
+        rs.onTimeout(new Runnable() {
+            @Override
+            public void run() {
+                sendPayload.put("id", requestId);
+                sendPayload.put("code", 500);
+                sendPayload.put("data", "请求超时");
+                publish(replyTopic, JSON.toJSONString(sendPayload), replyMqttProperties);
+            }
+        });
+    }
+
+    @Async
+    public void playbackStart(String replyTopic, String requestId, String deviceId, String channelId, String startTime, String endTime, MqttProperties replyMqttProperties) {
+        Map<String, Object> sendPayload = new HashMap<>();
+        MockHttpServletRequest request = new MockHttpServletRequest();
+
+
+        RequestMessage requestMessage = new RequestMessage();
+        try {
+            playService.playBack(deviceId, channelId, startTime, endTime, (code, msg, data) -> {
+
+                WVPResult<StreamContent> wvpResult = new WVPResult<>();
+                if (code == InviteErrorCode.SUCCESS.getCode()) {
+                    wvpResult.setCode(ErrorCode.SUCCESS.getCode());
+                    wvpResult.setMsg(ErrorCode.SUCCESS.getMsg());
+
+                    if (data != null) {
+                        StreamInfo streamInfo = (StreamInfo) data;
+                        if (userSetting.getUseSourceIpAsStreamIp()) {
+                            streamInfo = streamInfo.clone();//深拷贝
+                            String host;
+                            try {
+                                URL url = new URL(request.getRequestURL().toString());
+                                host = url.getHost();
+                            } catch (MalformedURLException e) {
+                                host = request.getLocalAddr();
+                            }
+                            streamInfo.channgeStreamIp(host);
+                        }
+                        wvpResult.setData(new StreamContent(streamInfo));
+                    }
+                } else {
+                    wvpResult.setCode(code);
+                    wvpResult.setMsg(msg);
+                }
+                requestMessage.setData(wvpResult);
+                log.debug("执行命令:  playback/Start success");
+                sendPayload.put("id", requestId);
+                sendPayload.put("code", 200);
+                sendPayload.put("data", requestMessage);
+                publish(replyTopic, JSON.toJSONString(sendPayload), replyMqttProperties);
+            });
+        } catch (Exception e) {
+            log.debug("执行命令:  playback/Start onError");
+            sendPayload.put("id", requestId);
+            sendPayload.put("code", 500);
+            sendPayload.put("data", e.getMessage());
+            publish(replyTopic, JSON.toJSONString(sendPayload), replyMqttProperties);
+        }
+
+    }
+
+    @Async
+    public void recordPlay1(String replyTopic, String requestId, String deviceId, String channelId, String startTime, String endTime, MqttProperties replyMqttProperties) {
+        DeferredResult<WVPResult<RecordInfo>> rs = gbRecordController.recordinfo(deviceId, channelId, startTime, endTime);
+        Map<String, Object> sendPayload = new HashMap<>();
+
+        rs.setResultHandler(new DeferredResult.DeferredResultHandler() {
+            @Override
+            public void handleResult(Object result) {
+                log.debug("执行命令:  playback/Start success");
+                sendPayload.put("id", requestId);
+                sendPayload.put("code", 200);
+                sendPayload.put("data", result);
+                publish(replyTopic, JSON.toJSONString(sendPayload), replyMqttProperties);
+            }
+        });
+
+        rs.onError(new Consumer<Throwable>() {
+            @Override
+            public void accept(Throwable throwable) {
+                sendPayload.put("id", requestId);
+                sendPayload.put("code", 500);
+                sendPayload.put("data", throwable.getMessage());
+                publish(replyTopic, JSON.toJSONString(sendPayload), replyMqttProperties);
+            }
+        });
+
+        rs.onTimeout(new Runnable() {
+            @Override
+            public void run() {
+                sendPayload.put("id", requestId);
+                sendPayload.put("code", 500);
+                sendPayload.put("data", "请求超时");
+                publish(replyTopic, JSON.toJSONString(sendPayload), replyMqttProperties);
+            }
+        });
+    }
+
+    @Async
+    public void recordPlay(String replyTopic, String requestId, String deviceId, String channelId, String startTime, String endTime, MqttProperties replyMqttProperties) {
+        Map<String, Object> sendPayload = new HashMap<>();
+
+        Device device = storager.queryVideoDevice(deviceId);
+        // 指定超时时间 1分钟30秒
+        String uuid = UUID.randomUUID().toString();
+        int sn = (int) ((Math.random() * 9 + 1) * 100000);
+        String key = DeferredResultHolder.CALLBACK_CMD_RECORDINFO + deviceId + sn;
+        RequestMessage msg = new RequestMessage();
+        msg.setId(uuid);
+        msg.setKey(key);
+        try {
+            cmder.recordInfoQuery(device, channelId, startTime, endTime, sn, null, null, null, (eventResult -> {
+                WVPResult<RecordInfo> wvpResult = new WVPResult<>();
+                wvpResult.setCode(ErrorCode.ERROR100.getCode());
+                wvpResult.setMsg("查询录像失败, status: " + eventResult.statusCode + ", message: " + eventResult.msg);
+                msg.setData(wvpResult);
+                sendPayload.put("id", requestId);
+                sendPayload.put("code", 200);
+                sendPayload.put("data", msg);
+                publish(replyTopic, JSON.toJSONString(sendPayload), replyMqttProperties);
+            }));
+        } catch (InvalidArgumentException | SipException | ParseException e) {
+            log.debug("执行命令:  gb_record/query onError");
+            sendPayload.put("id", requestId);
+            sendPayload.put("code", 500);
+            sendPayload.put("data", e.getMessage());
+            publish(replyTopic, JSON.toJSONString(sendPayload), replyMqttProperties);
         }
     }
 

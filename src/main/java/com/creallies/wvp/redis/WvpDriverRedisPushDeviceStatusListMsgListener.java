@@ -33,11 +33,11 @@ public class WvpDriverRedisPushDeviceStatusListMsgListener implements MessageLis
         result.put("typeName", VideoTypeEnum.onlineStatus.getText());
         result.put("deviceId", data[0]);
         result.put("status", "ON".equals(data[1]) ? 1 : 0);
-        List<DeviceChannel> channels =  deviceChannelMapper.queryAllChannels(data[0]);
-        for(DeviceChannel channel : channels){
+        List<DeviceChannel> channels = deviceChannelMapper.queryAllChannels(data[0]);
+        for (DeviceChannel channel : channels) {
             result.put("channelId", channel.getChannelId());
-            log.info("topic  === {}",VideoConstants.DEVICE_TOPIC);
-            MyMqttClient.publish(VideoConstants.DEVICE_TOPIC, JSONObject.toJSONString(result));
+            log.info("topic  === {}", VideoConstants.DEVICE_STATUS_TOPIC);
+            MyMqttClient.publish(VideoConstants.DEVICE_STATUS_TOPIC + channel.getDeviceId() + "/" + channel.getChannelId(), JSONObject.toJSONString(result));
         }
     }
 }

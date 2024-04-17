@@ -9,7 +9,7 @@ package com.creallies.wvp.constants;
 public class VideoConstants {
 	
 	public static final String MQTT_TOPIC = "video";
-	public static final String DEVICE_TOPIC = "video/device/status";
+	public static final String DEVICE_STATUS_TOPIC = "v1/service/device/state/";
 	public static final String DEVICE_CONTROL = "video/control";
 	public static final String DEVICE_CONTROL_REPLY = "video/control/reply";
 //	public static final String DEVICE_CONTROL = "ebus/asset/point";

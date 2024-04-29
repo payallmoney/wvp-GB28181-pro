@@ -116,14 +116,23 @@ public class MyMqttClient {
     @Autowired
     private MailConfig mailConfig;
 
-    public static Map<String, String> ALARM_TYPE = Map.of(
-            "Average Temperature", "平均温度",
-            "MIN. Temperature", "最低温度",
-            "MAX. Temperature", "最高温度",
-            "Diff. Temperature", "温差",
-            "more than", "大于",
-            "less than", "小于"
-    );
+    public static Map<String, String> ALARM_TYPE = new HashMap<>();
+
+    static {
+        ALARM_TYPE.put("Average Temperature", "平均温度");
+        ALARM_TYPE.put("MIN. Temperature", "最低温度");
+        ALARM_TYPE.put("MAX. Temperature", "最高温度");
+        ALARM_TYPE.put("Diff. Temperature", "温差");
+        ALARM_TYPE.put("more than", "大于");
+        ALARM_TYPE.put("less than", "小于");
+        ALARM_TYPE.put("平均温度", "avg");
+        ALARM_TYPE.put("最低温度", "min");
+        ALARM_TYPE.put("最高温度", "max");
+        ALARM_TYPE.put("温差", "diff");
+        ALARM_TYPE.put("大于", "more");
+        ALARM_TYPE.put("小于", "less");
+    }
+
     public static String TEMPER_REGEX = "^Current Temperature (\\d+\\.\\d+) °C (\\S+ than) Trigger Temperature (\\d+\\.\\d+) °C.$";
 
     public static String[] getTempers(String text) {
@@ -367,7 +376,8 @@ public class MyMqttClient {
 
 
     @Async
-    public void restartPlay(String replyTopic, String requestId, String deviceId, String channelId, MqttProperties replyMqttProperties) {
+    public void restartPlay(String replyTopic, String requestId, String deviceId, String channelId, MqttProperties
+            replyMqttProperties) {
         Device device = storager.queryVideoDevice(deviceId);
         MediaServer newMediaServerItem = playService.getNewMediaServerItem(device);
         Map<String, Object> sendPayload = new HashMap<>();
@@ -387,7 +397,8 @@ public class MyMqttClient {
 
 
     @Async
-    public void playbackStart1(String replyTopic, String requestId, String deviceId, String channelId, String startTime, String endTime, MqttProperties replyMqttProperties) {
+    public void playbackStart1(String replyTopic, String requestId, String deviceId, String channelId, String
+            startTime, String endTime, MqttProperties replyMqttProperties) {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setLocalAddr("0.0.0.0");
         DeferredResult<WVPResult<StreamContent>> rs = playbackController.start(request, deviceId, channelId, startTime, endTime);
@@ -429,7 +440,8 @@ public class MyMqttClient {
     }
 
     @Async
-    public void playbackStart(String replyTopic, String requestId, String deviceId, String channelId, String startTime, String endTime, MqttProperties replyMqttProperties) {
+    public void playbackStart(String replyTopic, String requestId, String deviceId, String channelId, String
+            startTime, String endTime, MqttProperties replyMqttProperties) {
         Map<String, Object> sendPayload = new HashMap<>();
         MockHttpServletRequest request = new MockHttpServletRequest();
 
@@ -480,7 +492,8 @@ public class MyMqttClient {
     }
 
     @Async
-    public void recordPlay1(String replyTopic, String requestId, String deviceId, String channelId, String startTime, String endTime, MqttProperties replyMqttProperties) {
+    public void recordPlay1(String replyTopic, String requestId, String deviceId, String channelId, String
+            startTime, String endTime, MqttProperties replyMqttProperties) {
         DeferredResult<WVPResult<RecordInfo>> rs = gbRecordController.recordinfo(deviceId, channelId, startTime, endTime);
         Map<String, Object> sendPayload = new HashMap<>();
         Map<String, Object> contentData = new HashMap<>();
@@ -518,7 +531,8 @@ public class MyMqttClient {
     }
 
     @Async
-    public void recordPlay(String replyTopic, String requestId, String deviceId, String channelId, String startTime, String endTime, MqttProperties replyMqttProperties) {
+    public void recordPlay(String replyTopic, String requestId, String deviceId, String channelId, String
+            startTime, String endTime, MqttProperties replyMqttProperties) {
         Map<String, Object> sendPayload = new HashMap<>();
 
         Device device = storager.queryVideoDevice(deviceId);
@@ -615,7 +629,8 @@ public class MyMqttClient {
     /**
      * 发布
      */
-    public static void publish(String topic, String pushMessage, int qos, boolean retained, MqttProperties properties) throws Exception {
+    public static void publish(String topic, String pushMessage, int qos, boolean retained, MqttProperties
+            properties) throws Exception {
         if (CLIENT == null) {
             log.error("[mqtt] publish error. client not ready");
             throw new Exception("[mqtt] publish error. client not ready");
@@ -754,7 +769,7 @@ public class MyMqttClient {
 //        sendPayload.put("details", messageJSON.toString());
         sendPayload.put("images", messageJSON.get("attach"));
         //测温报警发送mqtt消息(多次发送)
-        publish(mailConfig.getTopic() + "/" + messageJSON.get("SN"), JSON.toJSONString(sendPayload), null);
+        publish(mailConfig.getTopic() + "/Temper/"+ALARM_TYPE.get((String)messageJSON.get("报警类型"))+"/"+ ALARM_TYPE.get((String)messageJSON.get("超限类型"))+"/"+ messageJSON.get("SN"), JSON.toJSONString(sendPayload), null);
     }
 
     private void sendMoveMessage(Map messageJSON) {
@@ -768,7 +783,7 @@ public class MyMqttClient {
 //        sendPayload.put("details", messageJSON.toString());
         sendPayload.put("images", messageJSON.get("attach"));
         //测温报警发送mqtt消息(多次发送)
-        publish(mailConfig.getTopic() + "/" + messageJSON.get("SN"), JSON.toJSONString(sendPayload), null);
+        publish(mailConfig.getTopic() + "/MotionDetect/" + messageJSON.get("SN"), JSON.toJSONString(sendPayload), null);
     }
 
 

@@ -5,6 +5,7 @@ import com.creallies.wvp.enums.VideoTypeEnum;
 import com.creallies.wvp.mqtt.MyMqttClient;
 import com.genersoft.iot.vmp.gb28181.bean.DeviceChannel;
 import com.genersoft.iot.vmp.storager.dao.DeviceChannelMapper;
+import com.genersoft.iot.vmp.vmanager.gb28181.device.DeviceControl;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.connection.Message;
@@ -22,6 +23,8 @@ public class WvpDriverRedisPushDeviceStatusListMsgListener implements MessageLis
 
     @Autowired
     private DeviceChannelMapper deviceChannelMapper;
+    @Autowired
+    private DeviceControl deviceControl;
 
     @Override
     public void onMessage(Message message, byte[] bytes) {
@@ -38,6 +41,9 @@ public class WvpDriverRedisPushDeviceStatusListMsgListener implements MessageLis
             result.put("channelId", channel.getChannelId());
             log.info("topic  === {}", VideoConstants.DEVICE_STATUS_TOPIC);
             MyMqttClient.publish(VideoConstants.DEVICE_STATUS_TOPIC + channel.getDeviceId() + "/" + channel.getChannelId(), JSONObject.toJSONString(result));
+        }
+        if("ON".equals(data[1])){
+            deviceControl.guardApi(data[0],"SetGuard");
         }
     }
 }

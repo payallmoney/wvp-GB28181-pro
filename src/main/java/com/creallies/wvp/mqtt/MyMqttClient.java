@@ -2,14 +2,15 @@ package com.creallies.wvp.mqtt;
 
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
+import com.creallies.wvp.mail.MailConfig;
 import com.genersoft.iot.vmp.common.StreamInfo;
 import com.genersoft.iot.vmp.conf.UserSetting;
-import com.genersoft.iot.vmp.conf.exception.ControllerException;
 import com.genersoft.iot.vmp.gb28181.bean.Device;
 import com.genersoft.iot.vmp.gb28181.bean.RecordInfo;
 import com.genersoft.iot.vmp.gb28181.transmit.callback.DeferredResultHolder;
 import com.genersoft.iot.vmp.gb28181.transmit.callback.RequestMessage;
 import com.genersoft.iot.vmp.gb28181.transmit.cmd.impl.SIPCommander;
+import com.genersoft.iot.vmp.media.bean.MediaServer;
 import com.genersoft.iot.vmp.service.IPlayService;
 import com.genersoft.iot.vmp.service.bean.InviteErrorCode;
 import com.genersoft.iot.vmp.storager.IVideoManagerStorage;
@@ -19,10 +20,11 @@ import com.genersoft.iot.vmp.utils.DateUtil;
 import com.genersoft.iot.vmp.vmanager.bean.ErrorCode;
 import com.genersoft.iot.vmp.vmanager.bean.StreamContent;
 import com.genersoft.iot.vmp.vmanager.bean.WVPResult;
+import com.genersoft.iot.vmp.vmanager.gb28181.playback.PlaybackController;
 import com.genersoft.iot.vmp.vmanager.gb28181.ptz.PtzController;
 import com.genersoft.iot.vmp.vmanager.gb28181.record.GBRecordController;
-import com.genersoft.iot.vmp.vmanager.gb28181.playback.PlaybackController;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.compress.utils.FileNameUtils;
 import org.eclipse.paho.mqttv5.client.*;
 import org.eclipse.paho.mqttv5.client.persist.MemoryPersistence;
 import org.eclipse.paho.mqttv5.common.MqttException;
@@ -31,26 +33,42 @@ import org.eclipse.paho.mqttv5.common.MqttPersistenceException;
 import org.eclipse.paho.mqttv5.common.packet.MqttProperties;
 import org.eclipse.paho.mqttv5.common.packet.UserProperty;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.http.*;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.scheduling.annotation.Async;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import org.springframework.util.StringUtils;
+import org.springframework.web.client.RestTemplate;
 import org.springframework.web.context.request.async.DeferredResult;
 
 import javax.annotation.PostConstruct;
-import javax.servlet.http.HttpServletRequest;
+import javax.annotation.Resource;
+import javax.mail.*;
+import javax.mail.internet.MimeUtility;
+import javax.mail.search.FlagTerm;
 import javax.sip.InvalidArgumentException;
 import javax.sip.SipException;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.text.ParseException;
 import java.util.*;
 import java.util.function.Consumer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import static com.creallies.wvp.constants.VideoConstants.DEVICE_CONTROL;
 import static com.creallies.wvp.constants.VideoConstants.DEVICE_CONTROL_REPLY;
@@ -94,6 +112,30 @@ public class MyMqttClient {
 
     @Autowired
     private UserSetting userSetting;
+
+    @Autowired
+    private MailConfig mailConfig;
+
+    public static Map<String, String> ALARM_TYPE = Map.of(
+            "Average Temperature", "平均温度",
+            "MIN. Temperature", "最低温度",
+            "MAX. Temperature", "最高温度",
+            "Diff. Temperature", "温差",
+            "more than", "大于",
+            "less than", "小于"
+    );
+    public static String TEMPER_REGEX = "^Current Temperature (\\d+\\.\\d+) °C (\\S+ than) Trigger Temperature (\\d+\\.\\d+) °C.$";
+
+    public static String[] getTempers(String text) {
+        Pattern pattern = Pattern.compile(TEMPER_REGEX);
+        Matcher matcher = pattern.matcher(text);
+        if (matcher.find()) {
+            return new String[]{matcher.group(1), matcher.group(3), matcher.group(2)};
+        } else {
+            return null;
+        }
+    }
+
 
     @PostConstruct
     public void init() {
@@ -302,6 +344,13 @@ public class MyMqttClient {
 
                     break;
                 }
+                case "restartPlay": {
+                    log.debug("执行命令: {}/{}", deviceId, channelId);
+                    String startTime = param.getString("startTime");
+                    String endTime = param.getString("endTime");
+                    restartPlay(replyTopic, id, deviceId, channelId, replyMqttProperties);
+                    break;
+                }
             }
         } catch (Exception ex) {
             log.error(ex.getMessage(), ex);
@@ -318,6 +367,26 @@ public class MyMqttClient {
 
 
     @Async
+    public void restartPlay(String replyTopic, String requestId, String deviceId, String channelId, MqttProperties replyMqttProperties) {
+        Device device = storager.queryVideoDevice(deviceId);
+        MediaServer newMediaServerItem = playService.getNewMediaServerItem(device);
+        Map<String, Object> sendPayload = new HashMap<>();
+        Map<String, Object> contentData = new HashMap<>();
+        contentData.put("id", requestId);
+//        playService.stopPlay(device, channelId);
+        try {
+            cmder.streamByeCmd(device, channelId, "stop", null, null);
+        } catch (Exception ignored) {
+        }
+        playService.play(newMediaServerItem, deviceId, channelId, null, null);
+        sendPayload.put("code", 200);
+        sendPayload.put("msg", "成功");
+        sendPayload.put("data", contentData);
+        publish(replyTopic, JSON.toJSONString(sendPayload), replyMqttProperties);
+    }
+
+
+    @Async
     public void playbackStart1(String replyTopic, String requestId, String deviceId, String channelId, String startTime, String endTime, MqttProperties replyMqttProperties) {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setLocalAddr("0.0.0.0");
@@ -329,7 +398,7 @@ public class MyMqttClient {
             @Override
             public void handleResult(Object result) {
                 log.debug("执行命令:  playback/Start success");
-                contentData.put("data",result);
+                contentData.put("data", result);
                 sendPayload.put("code", 200);
                 sendPayload.put("msg", "成功");
                 sendPayload.put("data", contentData);
@@ -564,6 +633,229 @@ public class MyMqttClient {
         } catch (MqttException e) {
             log.error("[mqtt] 消息发送失败: " + pushMessage, e);
             throw e;
+        }
+    }
+
+    @Scheduled(cron = "0 0/1 * * * ?")
+    public synchronized void mailAlarmToMqtt() throws Exception {
+        Properties properties = new Properties();
+        properties.setProperty("mail.store.protocol", "imap");
+        Session session = Session.getDefaultInstance(properties, null);
+        Store store = session.getStore("imap");
+        store.connect(mailConfig.getIp(), mailConfig.getUsername(), mailConfig.getPassword());
+        Folder inbox = store.getFolder("INBOX");
+        inbox.open(Folder.READ_WRITE);
+        FlagTerm unreadFlagTerm = new FlagTerm(new Flags(Flags.Flag.SEEN), false);
+        Message[] unreadMessages = inbox.search(unreadFlagTerm);
+        log.info("unreadMessages==={}", unreadMessages.length);
+        for (Message message : unreadMessages) {
+            if (message.isMimeType("multipart/*")) {
+                Map<String, Object> messageJSON = new HashMap<>();
+                Multipart multipart = (Multipart) message.getContent();
+                int partCount = multipart.getCount();
+                List<Map<String, Object>> attachList = new ArrayList();
+                boolean isTemper = false;
+                for (int i = 0; i < partCount; i++) {
+                    BodyPart bodyPart = multipart.getBodyPart(i);
+                    if (Part.ATTACHMENT.equalsIgnoreCase(bodyPart.getDisposition())) {
+                        // 这是一个附件
+                        String fileName = MimeUtility.decodeText(bodyPart.getFileName());
+                        InputStream attachmentStream = bodyPart.getInputStream();
+                        Map<String, Object> attach = new HashMap<>();
+                        attach.put("content_name", fileName);
+                        String filepath = uploadFile(attachmentStream, fileName, 0);
+//                        attach.put("base64", convertInputStreamToBase64(attachmentStream));
+                        attach.put("baseUrl", filepath);
+                        attach.put("content_type", "image/" + FileNameUtils.getExtension(fileName).toLowerCase());
+                        attachList.add(attach);
+                    }
+                }
+                messageJSON.put("attach", attachList);
+                for (int i = 0; i < partCount; i++) {
+                    BodyPart bodyPart = multipart.getBodyPart(i);
+                    if (!Part.ATTACHMENT.equalsIgnoreCase(bodyPart.getDisposition())) {
+                        String body = bodyPart.getContent().toString();
+                        messageJSON.put("content", body);
+                        String[] lines = body.split("\r\n");
+                        for (String line : lines) {
+                            if (line.contains(":")) {
+                                String[] info = line.split(":");
+                                if (info.length >= 2) {
+                                    List<String> end = Arrays.stream(info).collect(Collectors.toList());
+                                    end.remove(0);
+                                    String infoData = String.join(":", end.toArray(new String[0])).trim();
+
+                                    String key = info[0];
+                                    if ("EVENT TIME".equals(key)) {
+                                        infoData = infoData.replace(",", " ").replace(".", "");
+                                    }
+
+                                    messageJSON.put(key, infoData);
+                                    if (key.contains("S/N")) {
+                                        messageJSON.put("SN", infoData);
+                                    }
+                                    if ("Tolerance Temperature ".equals(key)) {
+                                        isTemper = true;
+                                        sendMessage(messageJSON);
+                                    }
+
+                                }
+                            } else {
+                                String[] tempers = getTempers(line);
+                                if (tempers != null) {
+                                    messageJSON.put("当前温度", tempers[0]);
+                                    messageJSON.put("限额温度", tempers[1]);
+                                    messageJSON.put("报警类型", ALARM_TYPE.get((String) messageJSON.get("Alarm Type")));
+                                    messageJSON.put("超限类型", ALARM_TYPE.get(tempers[2]));
+                                }
+                            }
+                        }
+                    }
+                }
+                //不是测温报警循环完成发送mqtt消息
+                if (messageJSON.containsKey("SN") && !isTemper) {
+                    sendMessage(messageJSON);
+                    message.setFlag(Flags.Flag.SEEN, true);
+                } else if (isTemper) {
+                    message.setFlag(Flags.Flag.SEEN, true);
+                }
+            }
+        }
+        store.close();
+    }
+
+    private void sendMessage(Map messageJSON) {
+        String eventType = (String) messageJSON.get("EVENT TYPE");
+        switch (eventType) {
+            case "Motion Detection":
+                sendMoveMessage(messageJSON);
+                break;
+            case "Temperature Measurement Alarm.":
+                sendTemperMessage(messageJSON);
+                break;
+
+        }
+    }
+
+    private void sendTemperMessage(Map messageJSON) {
+        Map<String, Object> sendPayload = new HashMap<>();
+        sendPayload.put("SN", messageJSON.get("SN"));
+        sendPayload.put("type", "ALARM");
+        sendPayload.put("name", "温度超限");
+        sendPayload.put("subtype", "温度超限");
+        sendPayload.put("startTime", messageJSON.get("EVENT TIME"));
+        Map<String, Object> details = new HashMap<>();
+        details.put("当前温度", messageJSON.get("当前温度"));
+        details.put("限额温度", messageJSON.get("限额温度"));
+        details.put("报警类型", messageJSON.get("报警类型"));
+        details.put("超限类型", messageJSON.get("超限类型"));
+//        sendPayload.put("details", "当前温度:" + messageJSON.get("当前温度") + ",限额温度:" + messageJSON.get("限额温度") + ",报警类型:" + messageJSON.get("报警类型") + ",超限类型:" + messageJSON.get("超限类型"));
+        sendPayload.put("details", JSON.toJSONString(details));
+//        sendPayload.put("details", messageJSON.toString());
+        sendPayload.put("images", messageJSON.get("attach"));
+        //测温报警发送mqtt消息(多次发送)
+        publish(mailConfig.getTopic() + "/" + messageJSON.get("SN"), JSON.toJSONString(sendPayload), null);
+    }
+
+    private void sendMoveMessage(Map messageJSON) {
+        Map<String, Object> sendPayload = new HashMap<>();
+        sendPayload.put("SN", messageJSON.get("SN"));
+        sendPayload.put("type", "ALARM");
+        sendPayload.put("name", "移动侦测");
+        sendPayload.put("subtype", "移动侦测");
+        sendPayload.put("startTime", messageJSON.get("EVENT TIME"));
+//        sendPayload.put("details", messageJSON.toString());
+//        sendPayload.put("details", messageJSON.toString());
+        sendPayload.put("images", messageJSON.get("attach"));
+        //测温报警发送mqtt消息(多次发送)
+        publish(mailConfig.getTopic() + "/" + messageJSON.get("SN"), JSON.toJSONString(sendPayload), null);
+    }
+
+
+    private static String convertInputStreamToBase64(InputStream inputStream) {
+        try {
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+            byte[] buffer = new byte[1024];
+            int bytesRead;
+            while ((bytesRead = inputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, bytesRead);
+            }
+            byte[] bytes = outputStream.toByteArray();
+            return Base64.getEncoder().encodeToString(bytes);
+        } catch (IOException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    private String token;
+
+
+    private String uploadFile(InputStream file, String name, int num) throws IOException {
+        RestTemplate restTemplate = new RestTemplate();
+        String url = mailConfig.getUploadUrl(); // 替换为实际的接口 URL
+        File tempFile = File.createTempFile(System.getProperty("java.io.tmpdir"), ".tmp");
+        Files.copy(file, Paths.get(tempFile.getAbsolutePath()), StandardCopyOption.REPLACE_EXISTING);
+// 构造 MultipartFile
+        FileSystemResource fileResource = new FileSystemResource(tempFile);
+        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        body.add("file", fileResource);
+        body.add("path", "");
+        body.add("name", UUID.randomUUID() + name);
+        body.add("tags", "attach");
+        body.add("remark", "");
+        body.add("override", true);
+
+// 构造请求头
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        if (token == null) {
+            token = login();
+        }
+        headers.set("Authorization", "Bearer " + token);
+
+// 构造请求实体
+        HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
+
+// 发送请求
+        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, requestEntity, String.class);
+        int maxRetry = 1;
+        if (response.getStatusCode() == HttpStatus.UNAUTHORIZED && num < maxRetry) {
+            token = login();
+            return uploadFile(file, name, num + 1);
+        }
+        System.out.println("uploadFile Response: " + response.getBody());
+        JSONObject resp = JSON.parseObject(response.getBody());
+        if (resp.getInteger("code") == 200) {
+            return resp.getString("data");
+        } else {
+            return null;
+        }
+
+    }
+
+    private String login() {
+        RestTemplate restTemplate = new RestTemplate();
+        String url = mailConfig.getLoginUrl(); // 替换为实际的接口 URL
+// 构造 MultipartFile
+        Map body = new HashMap();
+        body.put("username", mailConfig.getLoginUsername());
+        body.put("password", mailConfig.getLoginPassword());
+// 构造请求头
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+// 构造请求实体
+        HttpEntity<Map> requestEntity = new HttpEntity<>(body, headers);
+
+// 发送请求
+        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, requestEntity, String.class);
+        System.out.println("login Response: " + response.getBody());
+        JSONObject resp = JSON.parseObject(response.getBody());
+        if (resp.getInteger("code") == 200) {
+            return resp.getJSONObject("data").getString("token");
+        } else {
+            return null;
         }
     }
 }

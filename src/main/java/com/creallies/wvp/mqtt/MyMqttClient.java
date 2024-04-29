@@ -760,7 +760,7 @@ public class MyMqttClient {
     private void sendMoveMessage(Map messageJSON) {
         Map<String, Object> sendPayload = new HashMap<>();
         sendPayload.put("SN", messageJSON.get("SN"));
-        sendPayload.put("type", "ALARM");
+        sendPayload.put("type", "EVENT");
         sendPayload.put("name", "移动侦测");
         sendPayload.put("subtype", "移动侦测");
         sendPayload.put("startTime", messageJSON.get("EVENT TIME"));

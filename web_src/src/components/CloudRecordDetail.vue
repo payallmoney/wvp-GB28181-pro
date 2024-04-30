@@ -230,9 +230,6 @@
 		mounted() {
       this.recordListStyle.height = this.winHeight + "px";
       this.playerStyle["height"] = this.winHeight + "px";
-      console.log(this.app)
-      console.log(this.stream)
-      console.log(this.mediaServerId)
       // 查询当年有视频的日期
       this.getDateInYear(()=>{
         if (Object.values(this.dateFilesObj).length > 0){
@@ -314,13 +311,34 @@
         });
       },
       chooseFile(file){
+        console.log(file)
 			  if (file == null) {
           this.videoUrl = "";
           this.choosedFile = "";
         }else {
           this.choosedFile = file.fileName;
-          this.videoUrl = `${this.getFileBasePath(file)}/download/${this.app}/${this.stream}/${this.chooseDate}/${file.fileName}`
-          console.log(this.videoUrl)
+          this.$axios({
+            method: 'get',
+            url: `/api/cloud/record/play/path`,
+            params: {
+              recordId: file.id,
+            }
+          }).then((res) => {
+            console.log(res)
+            if (res.data.code === 0) {
+              if (location.protocol === "https:") {
+                this.videoUrl = res.data.data.httpsPath;
+              }else {
+                this.videoUrl = res.data.data.httpPath;
+              }
+            }
+          }).catch((error) => {
+            console.log(error);
+          });
+          //
+          //
+          // this.videoUrl = `${this.getFileBasePath(file)}/download/${this.app}/${this.stream}/${this.chooseDate}/${file.fileName}`
+          // console.log(this.videoUrl)
         }
 
       },
@@ -328,7 +346,7 @@
         this.$router.back()
       },
       getFileShowName(item) {
-          return  moment.unix(item.startTime).format('HH:mm:ss') + "-" + moment.unix(item.endTime).format('HH:mm:ss')
+          return  moment(item.startTime).format('HH:mm:ss') + "-" + moment(item.endTime).format('HH:mm:ss')
       },
       chooseMediaChange() {
 
